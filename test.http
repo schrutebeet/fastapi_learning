@@ -1,0 +1,11 @@
+GET  http://127.0.0.1:8000/items
+
+{
+    "id": 2,
+    "name": "Milk",
+    "price": 2,
+    "description": "This is a milk bottle",
+    "on_offer": true
+}
+
+###
