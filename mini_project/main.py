@@ -1,50 +1,63 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, status, HTTPException
 from pydantic import BaseModel
-import asyncpg
+from typing import Optional, List
+from mini_project.database import SessionLocal
+from mini_project import models
 
 app = FastAPI()
 
-# Pydantic model for input data validation
-class DataInput(BaseModel):
+# To create tables
+class Item(BaseModel):
+    id: int
     name: str
-    surname: str
-    age: int
+    description: str
+    price: int
+    on_offer: bool
 
-async def get_database_connection():
-    return await asyncpg.connect(
-        user="your_user",
-        password="your_password",
-        database="your_database",
-        host="your_host",
-        port="your_port",
+    class Config:
+        orm_mode = True
+
+db = SessionLocal()
+
+@app.get("/items", response_model=List[Item], status_code=200)
+def get_all_items():
+    items = db.query(models.Item).all()
+    return items
+
+@app.get("/item/{item_id}", response_model=Item, status_code=status.HTTP_200_OK)
+def get_an_item(item_id:int):
+    item = db.query(models.Item).filter(models.Item.id==item_id).first()
+    return item
+
+@app.post("/items", response_model=Item, status_code=status.HTTP_201_CREATED)
+def create_an_item(item:Item):
+    new_item = models.Item(
+        name=item.name,
+        price=item.price,
+        description=item.description,
+        on_offer=item.on_offer
     )
+    db_item = db.query(models.Item).filter(item.name==new_item.name).first()
+    if db_item is not None:
+        raise HTTPException(status_code=400, detail="Item already exists")
+    db.add(new_item)
+    db.commit()
+    return new_item
 
-@app.post("/store-data")
-async def store_data(data: DataInput):
-    try:
-        conn = await get_database_connection()
-        await conn.execute(
-            "INSERT INTO mock_table VALUES ($1, $2)",
-            data.value1,
-            data.value2,
-        )
-        await conn.close()
-        return {"message": "Data stored successfully"}
-    except asyncpg.exceptions.UniqueViolationError as e:
-        raise HTTPException(status_code=400, detail="Data already exists")
-    except asyncpg.exceptions.ForeignKeyViolationError as e:
-        raise HTTPException(status_code=400, detail="Invalid foreign key")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Internal server error")
+@app.put("/item/{item_id}", response_model=Item, status_code=status.HTTP_200_OK)
+def update_an_item(item_id: int, item:Item):
+    item_to_update=db.query(models.Item).filter(models.Item.id==item_id).first()
+    item_to_update.name=item.name
+    item_to_update.price=item.price
+    item_to_update.description=item.description
+    item_to_update.on_offer=item.on_offer
+    db.commit()
+    return item_to_update
 
-# Custom error handling for specific error types
-@app.exception_handler(asyncpg.exceptions.PostgresError)
-async def handle_postgres_error(request, exc):
-    return JSONResponse(content={"error": "PostgreSQL error"}, status_code=500)
-
-# Custom error handling for all other exceptions
-@app.exception_handler(Exception)
-async def handle_general_error(request, exc):
-    return JSONResponse(content={"error": "An unexpected error occurred"}, status_code=500)
-
+@app.delete("/item/{item_id}")
+def delete_item(item_id: int):
+    item_to_delete = db.query(models.Item).filter(models.Item.id==item_id).first()
+    if item_to_delete is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found")
+    db.delete(item_to_delete)
+    return item_to_delete
